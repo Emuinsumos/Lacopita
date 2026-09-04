@@ -38,21 +38,24 @@
 const { useState, useEffect, useMemo } = React;
 
 // ============ CONFIGURÁ ACÁ TU PROYECTO DE FIREBASE ============
-// 1. Andá a https://console.firebase.google.com -> crear proyecto
-// 2. Build -> Realtime Database -> crear base (modo de prueba)
-// 3. Configuración del proyecto -> ícono "</>" (Web) -> copiá el config y pegalo abajo
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_PROYECTO.firebaseapp.com",
-  databaseURL: "https://TU_PROYECTO-default-rtdb.firebaseio.com",
-  projectId: "TU_PROYECTO",
-  storageBucket: "TU_PROYECTO.appspot.com",
-  messagingSenderId: "000000000000",
-  appId: "1:000000000000:web:xxxxxxxxxxxxxxxx"
+apiKey: "AIzaSyA-fuFrcLsUpUIkL40qcgxj2IGllN-SvwE",
+authDomain: "chino-a425c.firebaseapp.com",
+databaseURL: "https://chino-a425c-default-rtdb.firebaseio.com",
+projectId: "chino-a425c",
+storageBucket: "chino-a425c.firebasestorage.app",
+messagingSenderId: "772632398264",
+appId: "1:772632398264:web:c20e9d76a02aa3214da74d"
 };
-firebase.initializeApp(firebaseConfig);
-const db = firebase.database();
-const FIREBASE_SIN_CONFIGURAR = firebaseConfig.apiKey === "TU_API_KEY";
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
 // Usuario y contraseña de admin (cambialos si querés)
 const ADMIN_USER = "admin";
