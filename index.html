@@ -30,11 +30,6 @@ const { useState, useEffect, useMemo } = React;
 // 1. Andá a https://console.firebase.google.com -> crear proyecto
 // 2. Build -> Realtime Database -> crear base (modo de prueba)
 // 3. Configuración del proyecto -> ícono "</>" (Web) -> copiá el config y pegalo abajo
-// Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
-
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyA-fuFrcLsUpUIkL40qcgxj2IGllN-SvwE",
@@ -46,8 +41,10 @@ const firebaseConfig = {
   appId: "1:772632398264:web:c20e9d76a02aa3214da74d"
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
+// Inicializar Firebase (Versión 8 - compatible con los scripts de tu <head>)
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+  
 // Usuario y contraseña de admin (cambialos si querés)
 const ADMIN_USER = "chino";
 const ADMIN_PASS = "1969";
