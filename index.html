@@ -536,6 +536,7 @@ function AdminFechas({ jugadores, partidos }) {
     </div>
   );
         }
+  
 function AdminResultados({ jugadores, partidos }) {
   const pendientes = partidos.filter(p => !p.finalizado);
   const [golesPorPartido, setGolesPorPartido] = useState({});
@@ -546,6 +547,20 @@ function AdminResultados({ jugadores, partidos }) {
       [partidoId]: { ...(g[partidoId] || {}), [jugadorId]: valor }
     }));
   };
+function FilaGoles({ nombre, valor, onChange }) {
+  return (
+    <div className="flex justify-between items-center mb-1 bg-gray-50 p-1 rounded">
+      <span>{nombre}</span>
+      <input
+        type="number"
+        min="0"
+        className="w-12 border rounded px-1 text-center"
+        value={valor}
+        onChange={e => onChange(parseInt(e.target.value) || 0)}
+      />
+    </div>
+  );
+}
 
   const cargarResultado = (partido, resultado) => {
     if (!confirm("¿Confirmar este resultado? No se puede deshacer.")) return;
