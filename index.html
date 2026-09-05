@@ -36,8 +36,6 @@
 
 <script type="text/babel">
 const { useState, useEffect, useMemo } = React;
-
-// ============ CONFIGURÁ ACÁ TU PROYECTO DE FIREBASE ============
 // Configuración de Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyA-fuFrcLsUpUIkL40qcgxj2IGllN-SvwE",
@@ -50,23 +48,22 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-  
 
-// Usuario y contraseña de admin (cambialos si querés)
+// Atrapa cualquier error y lo muestra como alert.
+window.addEventListener("error", (e) => alert("Error: " + e.message));
+window.addEventListener("unhandledrejection", (e) => alert("Error: " + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+
+// Usuario y contraseña de admin
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "1234";
 
 // Convierte un link de Google Drive (de "compartir") a un link de imagen directa.
-// Los links de Drive normales devuelven una página HTML, no la imagen en sí,
-// por eso no cargan en un <img>. Si detecta un link de Drive, lo convierte;
-// si no, devuelve la URL tal cual (para links de Imgur, etc. que ya son directos).
 function convertirLinkFoto(url) {
   if (!url) return url;
   const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
   if (m && m[1]) return `https://lh3.googleusercontent.com/d/${m[1]}`;
   return url;
 }
-
 // ============ HELPERS ============
 function calcularEstadisticas(j) {
   const pj = j.pj || 0;
@@ -85,9 +82,7 @@ function ordenarTabla(jugadores) {
     });
 }
 
-// Sortea dos equipos balanceados según calidad. Si hay 2+ arqueros, reparte
-// uno de cada lado. Si hay 0 o 1 arquero, ese arquero cuenta como 4 estrellas
-// para el sorteo (su calidad real no se usa para balancear).
+// Sortea dos equipos balanceados según calidad.
 function armarEquipos(disponibles) {
   const arqueros = disponibles.filter(j => j.arquero);
   const campo = disponibles.filter(j => !j.arquero);
@@ -131,7 +126,6 @@ function Estrellas({ n, onClick }) {
     </span>
   );
 }
-
 function Cuadritos({ ultimos = [] }) {
   const colores = { V: "#22c55e", E: "#eab308", D: "#ef4444" };
   const slots = [...ultimos].slice(0, 5);
@@ -156,7 +150,7 @@ function Podio({ tabla }) {
   if (top3.length === 0) return null;
   const medallas = ["🥇", "🥈", "🥉"];
   const clases = ["medalla-oro", "medalla-plata", "medalla-bronce"];
-  const orden = [1, 0, 2]; // mostrar 2do - 1ro - 3ro visualmente
+  const orden = [1, 0, 2];
   return (
     <div className="bg-gradient-to-b from-[#4A90D9] to-[#75AADB] rounded-2xl p-6 mb-6 shadow-lg">
       <h2 className="text-white text-center text-xl font-bold mb-4">🏆 Podio 🏆</h2>
@@ -184,7 +178,6 @@ function Podio({ tabla }) {
     </div>
   );
 }
-
 // ============ TABLA DE POSICIONES ============
 function HistorialJugador({ j }) {
   const historial = [...(j.historial || [])].reverse();
@@ -272,34 +265,7 @@ function TablaPosiciones({ tabla }) {
       <p className="text-xs text-gray-400 p-2">Tocá un jugador para ver su historial de partidos.</p>
     </div>
   );
-}
-
-// ============ GOLEADORES ============
-function Goleadores({ tabla }) {
-  const ranking = [...tabla].filter(j => (j.goles || 0) > 0).sort((a, b) => (b.goles || 0) - (a.goles || 0));
-  if (ranking.length === 0) return null;
-  return (
-    <div className="bg-white rounded-2xl shadow overflow-x-auto mb-6">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-[#3E7CB1] text-white">
-            <th className="p-2 text-left">Goleadores</th>
-            <th className="p-2">Goles</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ranking.map((j, i) => (
-            <tr key={j.id} className={i % 2 === 0 ? "bg-[#EAF4FC]" : "bg-white"}>
-              <td className="p-2">{j.nombre}</td>
-              <td className="p-2 text-center font-bold">{j.goles}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
+  }
 // ============ HOME (pública) ============
 function Home({ jugadores }) {
   const tabla = useMemo(() => ordenarTabla(jugadores), [jugadores]);
@@ -346,10 +312,6 @@ function LoginAdmin({ onLogin }) {
   );
 }
 
-// Datos históricos tal como estaban en la planilla vieja (Pts/PJ/PG/PE/PP/Goles).
-// calidad y arquero quedan en default (3 estrellas, no arquero): se pueden editar
-// jugador por jugador después de importar. No hay historial partido a partido
-// porque la planilla vieja solo tenía los totales acumulados.
 const DATOS_HISTORICOS = [
   { nombre: "Emi", pj: 6, pg: 2, pe: 3, pp: 0, puntos: 12, goles: 10 },
   { nombre: "Nico", pj: 6, pg: 2, pe: 3, pp: 1, puntos: 9, goles: 0 },
@@ -381,7 +343,6 @@ const DATOS_HISTORICOS = [
   { nombre: "Marian", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
   { nombre: "Blas", pj: 1, pg: 0, pe: 0, pp: 1, puntos: 0, goles: 0 }
 ];
-
 // ============ ADMIN: JUGADORES ============
 function AdminJugadores({ jugadores }) {
   const vacio = { nombre: "", foto: "", calidad: 3, arquero: false };
@@ -401,21 +362,25 @@ function AdminJugadores({ jugadores }) {
   };
 
   const guardar = () => {
-    if (!form.nombre.trim()) return alert("Poné un nombre");
-    const fotoFinal = convertirLinkFoto(form.foto.trim());
-    const onError = (err) => alert("No se pudo guardar: " + err.message + "\n\n(Revisá las reglas de tu Realtime Database en Firebase — tienen que permitir escritura)");
-    if (editId) {
-      db.ref("jugadores/" + editId).update({
-        nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero
-      }).catch(onError);
-    } else {
-      db.ref("jugadores").push({
-        nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero,
-        pj: 0, pg: 0, pe: 0, pp: 0, puntos: 0, goles: 0, ultimos: [], historial: []
-      }).catch(onError);
+    try {
+      if (!form.nombre.trim()) return alert("Poné un nombre");
+      const fotoFinal = convertirLinkFoto(form.foto.trim());
+      const onError = (err) => alert("No se pudo guardar: " + err.message);
+      if (editId) {
+        db.ref("jugadores/" + editId).update({
+          nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero
+        }).then(() => alert("Jugador actualizado")).catch(onError);
+      } else {
+        db.ref("jugadores").push({
+          nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero,
+          pj: 0, pg: 0, pe: 0, pp: 0, puntos: 0, goles: 0, ultimos: [], historial: []
+        }).then(() => alert("Jugador agregado")).catch(onError);
+      }
+      setForm(vacio);
+      setEditId(null);
+    } catch (err) {
+      alert("Error al guardar: " + err.message);
     }
-    setForm(vacio);
-    setEditId(null);
   };
 
   const editar = (j) => {
@@ -479,8 +444,7 @@ function AdminJugadores({ jugadores }) {
       </div>
     </div>
   );
-}
-
+   }
 // ============ ADMIN: FECHAS Y SORTEO ============
 function AdminFechas({ jugadores, partidos }) {
   const [fecha, setFecha] = useState("");
@@ -571,21 +535,7 @@ function AdminFechas({ jugadores, partidos }) {
       </div>
     </div>
   );
-}
-
-// ============ ADMIN: RESULTADOS ============
-function FilaGoles({ nombre, valor, onChange }) {
-  return (
-    <div className="flex items-center justify-between text-sm py-1">
-      <span>{nombre}</span>
-      <input
-        type="number" min="0" className="border rounded-lg w-16 p-1 text-center"
-        value={valor} onChange={e => onChange(parseInt(e.target.value || "0", 10))}
-      />
-    </div>
-  );
-}
-
+        }
 function AdminResultados({ jugadores, partidos }) {
   const pendientes = partidos.filter(p => !p.finalizado);
   const [golesPorPartido, setGolesPorPartido] = useState({});
@@ -598,7 +548,6 @@ function AdminResultados({ jugadores, partidos }) {
   };
 
   const cargarResultado = (partido, resultado) => {
-    // resultado: "A" (ganó A), "B" (ganó B), "E" (empate)
     if (!confirm("¿Confirmar este resultado? No se puede deshacer.")) return;
 
     const golesDeEsteMatch = golesPorPartido[partido.id] || {};
@@ -680,8 +629,7 @@ function AdminResultados({ jugadores, partidos }) {
     </div>
   );
 }
-
-// ============ PANEL ADMIN (con tabs) ============
+// ============ PANEL ADMIN ============
 function PanelAdmin({ jugadores, partidos, onSalir }) {
   const [tab, setTab] = useState("jugadores");
   return (
@@ -710,7 +658,7 @@ function PanelAdmin({ jugadores, partidos, onSalir }) {
 function App() {
   const [jugadores, setJugadores] = useState([]);
   const [partidos, setPartidos] = useState([]);
-  const [vista, setVista] = useState("home"); // home | login | admin
+  const [vista, setVista] = useState("home");
   const [logueado, setLogueado] = useState(false);
 
   useEffect(() => {
@@ -730,12 +678,6 @@ function App() {
         <button className="font-bold" onClick={() => setVista("home")}>Inicio</button>
         <button className="font-bold" onClick={() => setVista(logueado ? "admin" : "login")}>Admin</button>
       </nav>
-
-      {FIREBASE_SIN_CONFIGURAR && (
-        <div className="bg-red-600 text-white text-center p-2 text-sm font-bold">
-          ⚠️ Todavía no pegaste tu configuración de Firebase (firebaseConfig) — por eso nada se guarda. Mirá el comentario al principio del archivo.
-        </div>
-      )}
 
       {vista === "home" && <Home jugadores={jugadores} />}
       {vista === "login" && <LoginAdmin onLogin={() => { setLogueado(true); setVista("admin"); }} />}
