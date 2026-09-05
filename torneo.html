@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Torneo de Fútbol</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background:#EAF4FC; }
+  .medalla-oro{ background: linear-gradient(135deg,#ffd700,#e6ac00); }
+  .medalla-plata{ background: linear-gradient(135deg,#e8e8e8,#b0b0b0); }
+  .medalla-bronce{ background: linear-gradient(135deg,#cd7f32,#8a5222); }
+  .cuadrito { width:16px; height:16px; border-radius:3px; display:inline-block; margin-right:2px; }
+  .foto-jugador { width:56px; height:56px; border-radius:50%; object-fit:cover; background:#ddd; }
+  .foto-podio { width:72px; height:72px; border-radius:50%; object-fit:cover; background:#ddd; border:3px solid white; }
+  .hero-bandera {
+    background: linear-gradient(#75AADB 0 33.3%, #ffffff 33.3% 66.6%, #75AADB 66.6% 100%);
+  }
+  .sol-mayo {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:56px; height:56px; border-radius:50%;
+    background: radial-gradient(circle, #FCBF49 0%, #F2A900 70%, #C88A00 100%);
+    box-shadow: 0 0 0 3px #B8860B;
+    font-size: 28px;
+  }
+  .estrellas-escudo { color:#F2A900; text-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo } = React;
+
+// ============ CONFIGURÁ ACÁ TU PROYECTO DE FIREBASE ============
+// 1. Andá a https://console.firebase.google.com -> crear proyecto
+// 2. Build -> Realtime Database -> crear base (modo de prueba)
+// 3. Configuración del proyecto -> ícono "</>" (Web) -> copiá el config y pegalo abajo
+const firebaseConfig = {
+  apiKey: "AIzaSyA-fuFrcLsUpUIkL40qcgxj2IGllN-SvwE",
+  authDomain: "chino-a425c.firebaseapp.com",
+  databaseURL: "https://chino-a425c-default-rtdb.firebaseio.com",
+  projectId: "chino-a425c",
+  storageBucket: "chino-a425c.firebasestorage.app",
+  messagingSenderId: "772632398264",
+  appId: "1:772632398264:web:c20e9d76a02aa3214da74d"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// Atrapa cualquier error (aunque sea de Firebase) y lo muestra como alert.
+// Así en el celular, sin consola, podés ver qué está fallando.
+window.addEventListener("error", (e) => alert("Error: " + e.message));
+window.addEventListener("unhandledrejection", (e) => alert("Error: " + (e.reason && e.reason.message ? e.reason.message : e.reason)));
+
+// Usuario y contraseña de admin (cambialos si querés)
+const ADMIN_USER = "admin";
+const ADMIN_PASS = "1234";
+
+// Convierte un link de Google Drive (de "compartir") a un link de imagen directa.
+// Los links de Drive normales devuelven una página HTML, no la imagen en sí,
+// por eso no cargan en un <img>. Si detecta un link de Drive, lo convierte;
+// si no, devuelve la URL tal cual (para links de Imgur, etc. que ya son directos).
+function convertirLinkFoto(url) {
+  if (!url) return url;
+  const m = url.match(/drive\.google\.com\/file\/d\/([^/]+)/) || url.match(/[?&]id=([^&]+)/);
+  if (m && m[1]) return `https://lh3.googleusercontent.com/d/${m[1]}`;
+  return url;
+}
+
+// ============ HELPERS ============
+function calcularEstadisticas(j) {
+  const pj = j.pj || 0;
+  const puntos = j.puntos || 0;
+  const promedio = pj > 0 ? (puntos / pj) : 0;
+  return { ...j, pj, promedio };
+}
+
+function ordenarTabla(jugadores) {
+  return [...jugadores]
+    .map(calcularEstadisticas)
+    .sort((a, b) => {
+      if (b.promedio !== a.promedio) return b.promedio - a.promedio;
+      if ((b.puntos||0) !== (a.puntos||0)) return (b.puntos||0) - (a.puntos||0);
+      return (b.pj||0) - (a.pj||0);
+    });
+}
+
+// Sortea dos equipos balanceados según calidad. Si hay 2+ arqueros, reparte
+// uno de cada lado. Si hay 0 o 1 arquero, ese arquero cuenta como 4 estrellas
+// para el sorteo (su calidad real no se usa para balancear).
+function armarEquipos(disponibles) {
+  const arqueros = disponibles.filter(j => j.arquero);
+  const campo = disponibles.filter(j => !j.arquero);
+  let equipoA = [], equipoB = [], sumaA = 0, sumaB = 0;
+
+  if (arqueros.length >= 2) {
+    const arqOrdenados = [...arqueros].sort((a, b) => b.calidad - a.calidad);
+    arqOrdenados.forEach((j, i) => {
+      if (i % 2 === 0) { equipoA.push(j); sumaA += j.calidad; }
+      else { equipoB.push(j); sumaB += j.calidad; }
+    });
+    const resto = [...campo].sort((a, b) => b.calidad - a.calidad);
+    resto.forEach(j => {
+      if (sumaA <= sumaB) { equipoA.push(j); sumaA += j.calidad; }
+      else { equipoB.push(j); sumaB += j.calidad; }
+    });
+  } else {
+    const todos = disponibles
+      .map(j => ({ ...j, valorDraft: j.arquero ? 4 : j.calidad }))
+      .sort((a, b) => b.valorDraft - a.valorDraft);
+    todos.forEach(j => {
+      if (sumaA <= sumaB) { equipoA.push(j); sumaA += j.valorDraft; }
+      else { equipoB.push(j); sumaB += j.valorDraft; }
+    });
+  }
+  return { equipoA, equipoB };
+}
+
+function Estrellas({ n, onClick }) {
+  return (
+    <span className="text-yellow-500 text-xl select-none">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <span
+          key={i}
+          onClick={() => onClick && onClick(i + 1)}
+          style={{ cursor: onClick ? "pointer" : "default" }}
+        >
+          {i < n ? "★" : "☆"}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function Cuadritos({ ultimos = [] }) {
+  const colores = { V: "#22c55e", E: "#eab308", D: "#ef4444" };
+  const slots = [...ultimos].slice(0, 5);
+  while (slots.length < 5) slots.push(null);
+  return (
+    <div className="flex">
+      {slots.map((r, i) => (
+        <span
+          key={i}
+          className="cuadrito"
+          style={{ background: r ? colores[r] : "#d1d5db" }}
+          title={r === "V" ? "Ganado" : r === "E" ? "Empatado" : r === "D" ? "Perdido" : "—"}
+        ></span>
+      ))}
+    </div>
+  );
+}
+
+// ============ PODIO ============
+function Podio({ tabla }) {
+  const top3 = tabla.slice(0, 3);
+  if (top3.length === 0) return null;
+  const medallas = ["🥇", "🥈", "🥉"];
+  const clases = ["medalla-oro", "medalla-plata", "medalla-bronce"];
+  const orden = [1, 0, 2]; // mostrar 2do - 1ro - 3ro visualmente
+  return (
+    <div className="bg-gradient-to-b from-[#4A90D9] to-[#75AADB] rounded-2xl p-6 mb-6 shadow-lg">
+      <h2 className="text-white text-center text-xl font-bold mb-4">🏆 Podio 🏆</h2>
+      <div className="flex justify-center items-end gap-4">
+        {orden.map(idx => {
+          const j = top3[idx];
+          if (!j) return <div key={idx} className="w-24"></div>;
+          const alturas = ["h-16", "h-24", "h-12"];
+          return (
+            <div key={j.id} className="flex flex-col items-center w-24">
+              <img
+                src={j.foto || "https://via.placeholder.com/80?text=%20"}
+                className="foto-podio -mb-3 z-10"
+                alt={j.nombre}
+              />
+              <div className={`w-full ${clases[idx]} ${alturas[idx]} rounded-t-lg flex flex-col items-center justify-start pt-2 shadow-inner`}>
+                <span className="text-2xl">{medallas[idx]}</span>
+              </div>
+              <p className="text-white text-sm font-semibold mt-1 text-center">{j.nombre}</p>
+              <p className="text-[#EAF4FC] text-xs">{j.promedio.toFixed(2)} pts/PJ</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ============ TABLA DE POSICIONES ============
+function HistorialJugador({ j }) {
+  const historial = [...(j.historial || [])].reverse();
+  if (historial.length === 0) {
+    return <p className="text-xs text-gray-400 p-2">Sin partidos individuales cargados todavía (solo estadísticas globales).</p>;
+  }
+  return (
+    <div className="p-2">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="text-gray-500">
+            <th className="text-left p-1">Fecha</th>
+            <th className="p-1">Resultado</th>
+            <th className="p-1">Goles</th>
+          </tr>
+        </thead>
+        <tbody>
+          {historial.map((h, i) => (
+            <tr key={i} className="border-t">
+              <td className="p-1">{h.fecha}</td>
+              <td className="p-1 text-center">
+                {h.resultado === "V" ? "✅ Ganó" : h.resultado === "E" ? "🟨 Empató" : "🟥 Perdió"}
+              </td>
+              <td className="p-1 text-center">{h.goles || 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TablaPosiciones({ tabla }) {
+  const [expandido, setExpandido] = useState(null);
+  return (
+    <div className="bg-white rounded-2xl shadow overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-[#3E7CB1] text-white">
+            <th className="p-2 text-left">#</th>
+            <th className="p-2 text-left">Jugador</th>
+            <th className="p-2">PJ</th>
+            <th className="p-2">PG</th>
+            <th className="p-2">PE</th>
+            <th className="p-2">PP</th>
+            <th className="p-2">Prom.</th>
+            <th className="p-2">Goles</th>
+            <th className="p-2 text-left">Últimos 5</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tabla.map((j, i) => (
+            <React.Fragment key={j.id}>
+              <tr
+                className={`cursor-pointer ${i % 2 === 0 ? "bg-[#EAF4FC]" : "bg-white"}`}
+                onClick={() => setExpandido(expandido === j.id ? null : j.id)}
+              >
+                <td className="p-2 font-bold">{i + 1}</td>
+                <td className="p-2 flex items-center gap-2">
+                  <img src={j.foto || "https://via.placeholder.com/56?text=%20"} className="foto-jugador" alt={j.nombre} />
+                  <span>{j.nombre} {j.arquero && <span title="Arquero">🧤</span>}</span>
+                </td>
+                <td className="p-2 text-center">{j.pj || 0}</td>
+                <td className="p-2 text-center">{j.pg || 0}</td>
+                <td className="p-2 text-center">{j.pe || 0}</td>
+                <td className="p-2 text-center">{j.pp || 0}</td>
+                <td className="p-2 text-center font-bold">{j.promedio.toFixed(2)}</td>
+                <td className="p-2 text-center">{j.goles || 0}</td>
+                <td className="p-2"><Cuadritos ultimos={j.ultimos} /></td>
+              </tr>
+              {expandido === j.id && (
+                <tr>
+                  <td colSpan="9" className="bg-gray-50">
+                    <HistorialJugador j={j} />
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+          {tabla.length === 0 && (
+            <tr><td colSpan="9" className="p-4 text-center text-gray-400">Todavía no hay jugadores cargados</td></tr>
+          )}
+        </tbody>
+      </table>
+      <p className="text-xs text-gray-400 p-2">Tocá un jugador para ver su historial de partidos.</p>
+    </div>
+  );
+}
+
+// ============ GOLEADORES ============
+function Goleadores({ tabla }) {
+  const ranking = [...tabla].filter(j => (j.goles || 0) > 0).sort((a, b) => (b.goles || 0) - (a.goles || 0));
+  if (ranking.length === 0) return null;
+  return (
+    <div className="bg-white rounded-2xl shadow overflow-x-auto mb-6">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-[#3E7CB1] text-white">
+            <th className="p-2 text-left">Goleadores</th>
+            <th className="p-2">Goles</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ranking.map((j, i) => (
+            <tr key={j.id} className={i % 2 === 0 ? "bg-[#EAF4FC]" : "bg-white"}>
+              <td className="p-2">{j.nombre}</td>
+              <td className="p-2 text-center font-bold">{j.goles}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ============ HOME (pública) ============
+function Home({ jugadores }) {
+  const tabla = useMemo(() => ordenarTabla(jugadores), [jugadores]);
+  return (
+    <div className="max-w-4xl mx-auto p-4">
+      <div className="hero-bandera rounded-2xl shadow-lg mb-6 py-6 px-4 flex flex-col items-center relative overflow-hidden">
+        <div className="sol-mayo mb-2">☀️</div>
+        <h1 className="text-3xl font-extrabold text-[#12345C] text-center drop-shadow-sm">⚽ Torneo de Fútbol</h1>
+        <div className="estrellas-escudo text-2xl mt-1">★ ★ ★</div>
+      </div>
+      <Podio tabla={tabla} />
+      <div className="grid sm:grid-cols-[2fr,1fr] gap-4 items-start">
+        <TablaPosiciones tabla={tabla} />
+        <Goleadores tabla={tabla} />
+      </div>
+    </div>
+  );
+}
+
+// ============ LOGIN ADMIN ============
+function LoginAdmin({ onLogin }) {
+  const [usuario, setUsuario] = useState("");
+  const [pass, setPass] = useState("");
+  const [error, setError] = useState("");
+
+  const entrar = () => {
+    if (usuario === ADMIN_USER && pass === ADMIN_PASS) {
+      onLogin();
+    } else {
+      setError("Usuario o contraseña incorrectos");
+    }
+  };
+
+  return (
+    <div className="max-w-sm mx-auto mt-16 bg-white p-6 rounded-2xl shadow">
+      <h2 className="text-xl font-bold mb-4 text-center">Ingreso Admin</h2>
+      <input className="border rounded-lg w-full p-2 mb-2" placeholder="Usuario"
+        value={usuario} onChange={e => setUsuario(e.target.value)} />
+      <input className="border rounded-lg w-full p-2 mb-2" placeholder="Contraseña" type="password"
+        value={pass} onChange={e => setPass(e.target.value)} onKeyDown={e => e.key === "Enter" && entrar()} />
+      {error && <p className="text-red-500 text-sm mb-2">{error}</p>}
+      <button className="bg-[#3E7CB1] text-white rounded-lg w-full p-2 font-bold" onClick={entrar}>Entrar</button>
+    </div>
+  );
+}
+
+// Datos históricos tal como estaban en la planilla vieja (Pts/PJ/PG/PE/PP/Goles).
+// calidad y arquero quedan en default (3 estrellas, no arquero): se pueden editar
+// jugador por jugador después de importar. No hay historial partido a partido
+// porque la planilla vieja solo tenía los totales acumulados.
+const DATOS_HISTORICOS = [
+  { nombre: "Emi", pj: 6, pg: 2, pe: 3, pp: 0, puntos: 12, goles: 10 },
+  { nombre: "Nico", pj: 6, pg: 2, pe: 3, pp: 1, puntos: 9, goles: 0 },
+  { nombre: "Teo", pj: 6, pg: 2, pe: 3, pp: 1, puntos: 9, goles: 0 },
+  { nombre: "QQ", pj: 6, pg: 2, pe: 3, pp: 1, puntos: 9, goles: 2 },
+  { nombre: "Pai", pj: 5, pg: 2, pe: 3, pp: 0, puntos: 9, goles: 0 },
+  { nombre: "Trilli", pj: 5, pg: 2, pe: 2, pp: 1, puntos: 8, goles: 0 },
+  { nombre: "Nano", pj: 5, pg: 2, pe: 2, pp: 1, puntos: 8, goles: 2 },
+  { nombre: "Luki", pj: 5, pg: 1, pe: 3, pp: 1, puntos: 6, goles: 0 },
+  { nombre: "Juan", pj: 6, pg: 1, pe: 3, pp: 2, puntos: 6, goles: 1 },
+  { nombre: "Agus", pj: 6, pg: 1, pe: 3, pp: 2, puntos: 6, goles: 5 },
+  { nombre: "Agus P.", pj: 5, pg: 1, pe: 3, pp: 1, puntos: 6, goles: 1 },
+  { nombre: "Nacho", pj: 4, pg: 1, pe: 2, pp: 1, puntos: 5, goles: 0 },
+  { nombre: "Javi", pj: 5, pg: 1, pe: 2, pp: 2, puntos: 5, goles: 2 },
+  { nombre: "Emilio", pj: 5, pg: 1, pe: 2, pp: 2, puntos: 5, goles: 1 },
+  { nombre: "Gaby", pj: 3, pg: 1, pe: 2, pp: 0, puntos: 5, goles: 0 },
+  { nombre: "Wosito", pj: 3, pg: 1, pe: 1, pp: 1, puntos: 4, goles: 0 },
+  { nombre: "JuanCai", pj: 3, pg: 1, pe: 1, pp: 1, puntos: 4, goles: 1 },
+  { nombre: "Fer", pj: 3, pg: 1, pe: 1, pp: 1, puntos: 4, goles: 0 },
+  { nombre: "David", pj: 3, pg: 1, pe: 0, pp: 2, puntos: 3, goles: 2 },
+  { nombre: "Ronchi", pj: 2, pg: 0, pe: 2, pp: 3, puntos: 2, goles: 0 },
+  { nombre: "Manolo", pj: 5, pg: 0, pe: 2, pp: 3, puntos: 2, goles: 1 },
+  { nombre: "Fede", pj: 2, pg: 0, pe: 2, pp: 0, puntos: 2, goles: 0 },
+  { nombre: "Ivo", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
+  { nombre: "Vic", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
+  { nombre: "Messi", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
+  { nombre: "Kike", pj: 2, pg: 0, pe: 1, pp: 1, puntos: 1, goles: 0 },
+  { nombre: "Boti", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
+  { nombre: "Marian", pj: 1, pg: 0, pe: 1, pp: 0, puntos: 1, goles: 0 },
+  { nombre: "Blas", pj: 1, pg: 0, pe: 0, pp: 1, puntos: 0, goles: 0 }
+];
+
+// ============ ADMIN: JUGADORES ============
+function AdminJugadores({ jugadores }) {
+  const vacio = { nombre: "", foto: "", calidad: 3, arquero: false };
+  const [form, setForm] = useState(vacio);
+  const [editId, setEditId] = useState(null);
+
+  const importarHistoricos = () => {
+    if (!confirm("Esto agrega " + DATOS_HISTORICOS.length + " jugadores con sus estadísticas viejas (PJ/PG/PE/PP/Goles). Si un jugador ya existe con el mismo nombre, se va a duplicar. ¿Continuar?")) return;
+    DATOS_HISTORICOS.forEach(d => {
+      db.ref("jugadores").push({
+        nombre: d.nombre, foto: "", calidad: 3, arquero: false,
+        pj: d.pj, pg: d.pg, pe: d.pe, pp: d.pp, puntos: d.puntos, goles: d.goles,
+        ultimos: [], historial: []
+      });
+    });
+    alert("Listo, se importaron los jugadores. Revisá calidad y arquero de cada uno.");
+  };
+
+  const guardar = () => {
+    try {
+      if (!form.nombre.trim()) return alert("Poné un nombre");
+      const fotoFinal = convertirLinkFoto(form.foto.trim());
+      const onError = (err) => alert("No se pudo guardar: " + err.message);
+      if (editId) {
+        db.ref("jugadores/" + editId).update({
+          nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero
+        }).then(() => alert("Jugador actualizado")).catch(onError);
+      } else {
+        db.ref("jugadores").push({
+          nombre: form.nombre, foto: fotoFinal, calidad: form.calidad, arquero: form.arquero,
+          pj: 0, pg: 0, pe: 0, pp: 0, puntos: 0, goles: 0, ultimos: [], historial: []
+        }).then(() => alert("Jugador agregado")).catch(onError);
+      }
+      setForm(vacio);
+      setEditId(null);
+    } catch (err) {
+      alert("Error al guardar: " + err.message);
+    }
+  };
+
+  const editar = (j) => {
+    setForm({ nombre: j.nombre, foto: j.foto || "", calidad: j.calidad || 3, arquero: !!j.arquero });
+    setEditId(j.id);
+  };
+
+  const borrar = (id) => {
+    if (confirm("¿Borrar este jugador? Se pierde su historial.")) db.ref("jugadores/" + id).remove();
+  };
+
+  return (
+    <div>
+      <div className="bg-yellow-50 border border-yellow-300 p-3 rounded-2xl mb-4 flex items-center justify-between gap-2">
+        <p className="text-sm text-yellow-800">¿Tenés los datos viejos de la planilla? Importalos una sola vez.</p>
+        <button className="bg-yellow-500 text-white rounded-lg px-3 py-2 text-sm font-bold whitespace-nowrap" onClick={importarHistoricos}>
+          Importar datos históricos
+        </button>
+      </div>
+      <div className="bg-white p-4 rounded-2xl shadow mb-4">
+        <h3 className="font-bold mb-2">{editId ? "Editar jugador" : "Nuevo jugador"}</h3>
+        <input className="border rounded-lg w-full p-2 mb-2" placeholder="Nombre"
+          value={form.nombre} onChange={e => setForm({ ...form, nombre: e.target.value })} />
+        <input className="border rounded-lg w-full p-2 mb-1" placeholder="URL de la foto (link de Drive o de imagen)"
+          value={form.foto} onChange={e => setForm({ ...form, foto: e.target.value })} />
+        <p className="text-xs text-gray-400 mb-2">Si pegás un link de Drive, el archivo tiene que estar compartido como "Cualquier persona con el enlace".</p>
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-sm">Calidad:</span>
+          <Estrellas n={form.calidad} onClick={(n) => setForm({ ...form, calidad: n })} />
+        </div>
+        <label className="flex items-center gap-2 mb-3 text-sm">
+          <input type="checkbox" checked={form.arquero}
+            onChange={e => setForm({ ...form, arquero: e.target.checked })} />
+          Es arquero 🧤
+        </label>
+        <div className="flex gap-2">
+          <button className="bg-[#3E7CB1] text-white rounded-lg px-4 py-2 font-bold" onClick={guardar}>
+            {editId ? "Guardar cambios" : "Agregar jugador"}
+          </button>
+          {editId && (
+            <button className="bg-gray-300 rounded-lg px-4 py-2" onClick={() => { setForm(vacio); setEditId(null); }}>
+              Cancelar
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow divide-y">
+        {jugadores.map(j => (
+          <div key={j.id} className="flex items-center gap-3 p-3">
+            <img src={j.foto || "https://via.placeholder.com/56?text=%20"} className="foto-jugador" alt={j.nombre} />
+            <div className="flex-1">
+              <p className="font-semibold">{j.nombre} {j.arquero && "🧤"}</p>
+              <Estrellas n={j.calidad} />
+            </div>
+            <button className="text-blue-600 text-sm mr-2" onClick={() => editar(j)}>Editar</button>
+            <button className="text-red-600 text-sm" onClick={() => borrar(j.id)}>Borrar</button>
+          </div>
+        ))}
+        {jugadores.length === 0 && <p className="p-4 text-center text-gray-400">No hay jugadores todavía</p>}
+      </div>
+    </div>
+  );
+}
+
+// ============ ADMIN: FECHAS Y SORTEO ============
+function AdminFechas({ jugadores, partidos }) {
+  const [fecha, setFecha] = useState("");
+  const [seleccionados, setSeleccionados] = useState({});
+  const [preview, setPreview] = useState(null);
+
+  const toggle = (id) => setSeleccionados(s => ({ ...s, [id]: !s[id] }));
+
+  const disponibles = jugadores.filter(j => seleccionados[j.id]);
+
+  const sortear = () => {
+    if (disponibles.length < 2) return alert("Seleccioná al menos 2 jugadores disponibles");
+    setPreview(armarEquipos(disponibles));
+  };
+
+  const guardarFecha = () => {
+    if (!fecha) return alert("Elegí una fecha");
+    if (!preview) return alert("Primero sorteá los equipos");
+    db.ref("partidos").push({
+      fecha,
+      disponibles: disponibles.map(j => j.id),
+      equipoA: preview.equipoA.map(j => j.id),
+      equipoB: preview.equipoB.map(j => j.id),
+      resultado: null,
+      finalizado: false
+    });
+    setFecha(""); setSeleccionados({}); setPreview(null);
+    alert("Fecha creada con los equipos sorteados");
+  };
+
+  const nombreDe = (id) => (jugadores.find(j => j.id === id) || {}).nombre || "?";
+
+  return (
+    <div>
+      <div className="bg-white p-4 rounded-2xl shadow mb-4">
+        <h3 className="font-bold mb-2">Nueva fecha</h3>
+        <input type="date" className="border rounded-lg p-2 mb-3"
+          value={fecha} onChange={e => setFecha(e.target.value)} />
+        <p className="text-sm font-semibold mb-1">Jugadores disponibles:</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-3">
+          {jugadores.map(j => (
+            <label key={j.id} className="flex items-center gap-2 text-sm bg-[#EAF4FC] rounded-lg p-2">
+              <input type="checkbox" checked={!!seleccionados[j.id]} onChange={() => toggle(j.id)} />
+              {j.nombre} {j.arquero && "🧤"}
+            </label>
+          ))}
+        </div>
+        <button className="bg-[#3E7CB1] text-white rounded-lg px-4 py-2 font-bold mr-2" onClick={sortear}>
+          Sortear equipos
+        </button>
+        {preview && (
+          <button className="bg-blue-600 text-white rounded-lg px-4 py-2 font-bold" onClick={guardarFecha}>
+            Guardar fecha
+          </button>
+        )}
+
+        {preview && (
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="bg-blue-50 rounded-lg p-3">
+              <p className="font-bold text-blue-700 mb-1">Equipo A</p>
+              {preview.equipoA.map(j => <p key={j.id} className="text-sm">{j.nombre} {j.arquero && "🧤"} <Estrellas n={j.calidad} /></p>)}
+            </div>
+            <div className="bg-red-50 rounded-lg p-3">
+              <p className="font-bold text-red-700 mb-1">Equipo B</p>
+              {preview.equipoB.map(j => <p key={j.id} className="text-sm">{j.nombre} {j.arquero && "🧤"} <Estrellas n={j.calidad} /></p>)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <h3 className="font-bold mb-2">Fechas cargadas</h3>
+      <div className="space-y-3">
+        {partidos.slice().reverse().map(p => (
+          <div key={p.id} className="bg-white rounded-2xl shadow p-3">
+            <p className="font-semibold">{p.fecha} {p.finalizado ? "✅ Finalizado" : "⏳ Pendiente"}</p>
+            <div className="grid grid-cols-2 gap-2 text-sm mt-2">
+              <div><span className="font-bold text-blue-700">Equipo A:</span> {(p.equipoA || []).map(nombreDe).join(", ")}</div>
+              <div><span className="font-bold text-red-700">Equipo B:</span> {(p.equipoB || []).map(nombreDe).join(", ")}</div>
+            </div>
+            {p.finalizado && (
+              <p className="text-sm mt-1 text-gray-600">
+                Resultado: {p.resultado === "A" ? "Ganó Equipo A" : p.resultado === "B" ? "Ganó Equipo B" : "Empate"}
+              </p>
+            )}
+          </div>
+        ))}
+        {partidos.length === 0 && <p className="text-gray-400 text-center">No hay fechas cargadas</p>}
+      </div>
+    </div>
+  );
+}
+
+// ============ ADMIN: RESULTADOS ============
+function FilaGoles({ nombre, valor, onChange }) {
+  return (
+    <div className="flex items-center justify-between text-sm py-1">
+      <span>{nombre}</span>
+      <input
+        type="number" min="0" className="border rounded-lg w-16 p-1 text-center"
+        value={valor} onChange={e => onChange(parseInt(e.target.value || "0", 10))}
+      />
+    </div>
+  );
+}
+
+function AdminResultados({ jugadores, partidos }) {
+  const pendientes = partidos.filter(p => !p.finalizado);
+  const [golesPorPartido, setGolesPorPartido] = useState({});
+
+  const setGol = (partidoId, jugadorId, valor) => {
+    setGolesPorPartido(g => ({
+      ...g,
+      [partidoId]: { ...(g[partidoId] || {}), [jugadorId]: valor }
+    }));
+  };
+
+  const cargarResultado = (partido, resultado) => {
+    // resultado: "A" (ganó A), "B" (ganó B), "E" (empate)
+    if (!confirm("¿Confirmar este resultado? No se puede deshacer.")) return;
+
+    const golesDeEsteMatch = golesPorPartido[partido.id] || {};
+
+    const actualizar = (id, tipo) => {
+      const j = jugadores.find(x => x.id === id);
+      if (!j) return;
+      const puntosGanados = tipo === "V" ? 3 : tipo === "E" ? 1 : 0;
+      const golesEnEstePartido = golesDeEsteMatch[id] || 0;
+      const nuevos = {
+        pj: (j.pj || 0) + 1,
+        pg: (j.pg || 0) + (tipo === "V" ? 1 : 0),
+        pe: (j.pe || 0) + (tipo === "E" ? 1 : 0),
+        pp: (j.pp || 0) + (tipo === "D" ? 1 : 0),
+        puntos: (j.puntos || 0) + puntosGanados,
+        goles: (j.goles || 0) + golesEnEstePartido,
+        ultimos: [tipo, ...(j.ultimos || [])].slice(0, 5),
+        historial: [...(j.historial || []), { fecha: partido.fecha, resultado: tipo, goles: golesEnEstePartido }]
+      };
+      db.ref("jugadores/" + id).update(nuevos);
+    };
+
+    const equipoA = partido.equipoA || [];
+    const equipoB = partido.equipoB || [];
+
+    if (resultado === "E") {
+      equipoA.forEach(id => actualizar(id, "E"));
+      equipoB.forEach(id => actualizar(id, "E"));
+    } else if (resultado === "A") {
+      equipoA.forEach(id => actualizar(id, "V"));
+      equipoB.forEach(id => actualizar(id, "D"));
+    } else {
+      equipoA.forEach(id => actualizar(id, "D"));
+      equipoB.forEach(id => actualizar(id, "V"));
+    }
+
+    db.ref("partidos/" + partido.id).update({ resultado, finalizado: true });
+    setGolesPorPartido(g => { const copia = { ...g }; delete copia[partido.id]; return copia; });
+  };
+
+  const jugadorDe = (id) => jugadores.find(j => j.id === id) || { id, nombre: "?" };
+
+  return (
+    <div className="space-y-3">
+      <h3 className="font-bold mb-2">Cargar resultado</h3>
+      {pendientes.map(p => {
+        const goles = golesPorPartido[p.id] || {};
+        return (
+          <div key={p.id} className="bg-white rounded-2xl shadow p-3">
+            <p className="font-semibold mb-2">{p.fecha}</p>
+            <p className="text-xs text-gray-500 mb-1">Goles de cada jugador en este partido (opcional):</p>
+            <div className="grid grid-cols-2 gap-3 text-sm mb-3">
+              <div>
+                <p className="font-bold text-blue-700 mb-1">Equipo A</p>
+                {(p.equipoA || []).map(id => (
+                  <FilaGoles key={id} nombre={jugadorDe(id).nombre}
+                    valor={goles[id] || 0}
+                    onChange={v => setGol(p.id, id, v)} />
+                ))}
+              </div>
+              <div>
+                <p className="font-bold text-red-700 mb-1">Equipo B</p>
+                {(p.equipoB || []).map(id => (
+                  <FilaGoles key={id} nombre={jugadorDe(id).nombre}
+                    valor={goles[id] || 0}
+                    onChange={v => setGol(p.id, id, v)} />
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button className="bg-blue-600 text-white rounded-lg px-3 py-2 text-sm font-bold" onClick={() => cargarResultado(p, "A")}>Ganó Equipo A</button>
+              <button className="bg-gray-500 text-white rounded-lg px-3 py-2 text-sm font-bold" onClick={() => cargarResultado(p, "E")}>Empate</button>
+              <button className="bg-red-600 text-white rounded-lg px-3 py-2 text-sm font-bold" onClick={() => cargarResultado(p, "B")}>Ganó Equipo B</button>
+            </div>
+          </div>
+        );
+      })}
+      {pendientes.length === 0 && <p className="text-gray-400 text-center">No hay fechas pendientes de resultado</p>}
+    </div>
+  );
+}
+
+// ============ PANEL ADMIN (con tabs) ============
+function PanelAdmin({ jugadores, partidos, onSalir }) {
+  const [tab, setTab] = useState("jugadores");
+  return (
+    <div className="max-w-3xl mx-auto p-4">
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold text-[#1B4B7A]">Panel Admin</h1>
+        <button className="text-sm text-gray-500 underline" onClick={onSalir}>Salir</button>
+      </div>
+      <div className="flex gap-2 mb-4">
+        {[["jugadores", "Jugadores"], ["fechas", "Fechas / Sorteo"], ["resultados", "Resultados"]].map(([k, label]) => (
+          <button key={k}
+            className={`px-3 py-2 rounded-lg text-sm font-bold ${tab === k ? "bg-[#3E7CB1] text-white" : "bg-white text-[#1B4B7A]"}`}
+            onClick={() => setTab(k)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "jugadores" && <AdminJugadores jugadores={jugadores} />}
+      {tab === "fechas" && <AdminFechas jugadores={jugadores} partidos={partidos} />}
+      {tab === "resultados" && <AdminResultados jugadores={jugadores} partidos={partidos} />}
+    </div>
+  );
+}
+
+// ============ APP ============
+function App() {
+  const [jugadores, setJugadores] = useState([]);
+  const [partidos, setPartidos] = useState([]);
+  const [vista, setVista] = useState("home"); // home | login | admin
+  const [logueado, setLogueado] = useState(false);
+
+  useEffect(() => {
+    db.ref("jugadores").on("value", snap => {
+      const val = snap.val() || {};
+      setJugadores(Object.entries(val).map(([id, v]) => ({ id, ...v })));
+    });
+    db.ref("partidos").on("value", snap => {
+      const val = snap.val() || {};
+      setPartidos(Object.entries(val).map(([id, v]) => ({ id, ...v })));
+    });
+  }, []);
+
+  return (
+    <div className="min-h-screen pb-10">
+      <nav className="bg-[#12345C] text-white p-3 flex justify-center gap-4">
+        <button className="font-bold" onClick={() => setVista("home")}>Inicio</button>
+        <button className="font-bold" onClick={() => setVista(logueado ? "admin" : "login")}>Admin</button>
+      </nav>
+
+      {vista === "home" && <Home jugadores={jugadores} />}
+      {vista === "login" && <LoginAdmin onLogin={() => { setLogueado(true); setVista("admin"); }} />}
+      {vista === "admin" && logueado && (
+        <PanelAdmin jugadores={jugadores} partidos={partidos} onSalir={() => { setLogueado(false); setVista("home"); }} />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
